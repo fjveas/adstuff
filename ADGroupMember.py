@@ -13,7 +13,7 @@ from impacket.examples import logger
 from impacket.examples.utils import parse_credentials
 
 def getGroupEntry(conn, baseDN, groupName):
-    res = conn.search(baseDN, '(&(objectClass=group)(cn={}))'.format(groupName), attributes=['distinguishedName', 'member'])
+    res = conn.search(baseDN, '(&(objectClass=group)(cn={}))'.format(groupName), attributes=['distinguishedName', 'objectSid', 'member'])
     if len(conn.entries) < 1:
         logging.error('Couldn\'t find group "{}"'.format(groupName))
         sys.exit(1)
@@ -138,18 +138,23 @@ logging.info('LDAP bind OK: "{}"'.format(baseDN))
 # Find group DN
 groupEntry = getGroupEntry(conn, baseDN, target_group)
 groupDN = groupEntry['distinguishedName'].value
+groupSID = groupEntry['objectSid'].value
+groupRID = groupSID.rsplit('-', 1)[1]   # Relateive ID
+domainSID = groupSID.rsplit('-', 1)[0]
+
+logging.info('Domain SID: "{}"'.format(domainSID))
 logging.info('Group to be queried: "{}"'.format(groupDN))
 
 if options.get:
-    if len(groupEntry['member']) == 0:
-        logging.info('"{}" has no members'.format(target_group))
-        sys.exit(0)
+    res = conn.search(baseDN, '(&(objectClass=user)(primaryGroupID={}))'.format(groupRID), attributes=['sAMAccountName'])
+    memberEntries = [entry.entry_dn for entry in conn.entries] + list(groupEntry['member'])
+    if len(memberEntries) == 0:
+        logging.warning('No members found'.format(target_group))
+        sys.exit(1)
 
-    logging.info('Members of group "{}":'.format(target_group))
-    for memberDN in groupEntry['member']:
+    for memberDN in memberEntries:
         sAMAccountName = getUserAccount(conn, memberDN)
         print('    {} ({})'.format(sAMAccountName, memberDN))
-
 else:
     userEntry = getUserEntry(conn, baseDN, target_user)
     userDN = userEntry['distinguishedName'].value
